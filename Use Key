@@ -1,0 +1,1151 @@
+--[[
+	SENAR HUB  |  Steal a PC
+	Developer : GGSIHLUH
+	Team      : Only 1 Person
+
+	Fitur asli (dari StealAPC.lua): Select Zone, Auto PC, Equip Best, Auto Train Bubbles
+	Method baru: Quick Step | Stealer | Helt | Internet Explorer
+	UI: gaya FluentModded (sidebar profil + search, judul besar, baris Theme) + 8 tema
+]]
+
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local ContentProvider = game:GetService("ContentProvider")
+local LocalPlayer = Players.LocalPlayer
+if not LocalPlayer then return end
+
+local env = (getgenv and getgenv()) or _G
+if env.__SenarPCCleanup then pcall(env.__SenarPCCleanup) end
+
+-- ================= CONFIG =================
+local SCRIPT_NAME  = "Senar Hub"
+local DEVELOPER    = "GGSIHLUH"
+local TEAM         = "Only 1 Person"
+local TOGGLE_ICON  = 113481587552306
+
+-- (nilai asli dari script ValueHat)
+local ZONE_MARGIN     = 10
+local TELEPORT_HEIGHT = 3
+local SAFE_POSITION   = Vector3.new(-1, 3, 49)
+local PROMPT_RANGE    = 5
+local FIRE_INTERVAL   = 0.05
+local RETURN_DELAY    = 0.2
+local RETURN_STAY     = 1
+local SKIP_TIME       = 10
+local EQUIP_INTERVAL  = 5
+local BUBBLE_INTERVAL = 0.1
+local PLACE_WAIT      = 0.2
+
+-- parameter method (bisa diubah di menu Methods)
+local P = { QuickStep = 130, Climb = 150, Speed = 600, Descend = 50 }
+
+local METHODS = { "Instant Steal Risk Kick", "Quick Step", "Stealer", "Teleport+Force Hots", "Afk" }
+
+-- ================= TEMA =================
+local function rgb(r, g, b) return Color3.fromRGB(r, g, b) end
+local THEMES = {
+	["Pearl White"]  = { G1 = rgb(248,248,249), G2 = rgb(212,215,221), TEXT = rgb(28,28,32), SUB = rgb(112,112,120),
+		CARD = rgb(255,255,255), CARDA = 0.40, STROKE = rgb(196,198,205), ACCENT = rgb(0,118,210), FIELD = rgb(255,255,255), FIELDA = 0.30 },
+	["Deep Ocean"]   = { G1 = rgb(10,84,110), G2 = rgb(26,170,198), TEXT = rgb(255,255,255), SUB = rgb(188,228,238),
+		CARD = rgb(255,255,255), CARDA = 0.90, STROKE = rgb(120,205,225), ACCENT = rgb(120,235,245), FIELD = rgb(255,255,255), FIELDA = 0.86 },
+	["Midnight Blue"] = { G1 = rgb(42,36,96), G2 = rgb(106,88,180), TEXT = rgb(255,255,255), SUB = rgb(205,198,240),
+		CARD = rgb(255,255,255), CARDA = 0.90, STROKE = rgb(150,140,220), ACCENT = rgb(170,160,255), FIELD = rgb(255,255,255), FIELDA = 0.86 },
+	["Charcoal"]     = { G1 = rgb(40,42,44), G2 = rgb(108,112,114), TEXT = rgb(255,255,255), SUB = rgb(200,204,206),
+		CARD = rgb(255,255,255), CARDA = 0.91, STROKE = rgb(140,144,146), ACCENT = rgb(210,214,218), FIELD = rgb(255,255,255), FIELDA = 0.88 },
+	["Blood Red"]    = { G1 = rgb(60,4,6), G2 = rgb(165,24,24), TEXT = rgb(255,255,255), SUB = rgb(240,180,180),
+		CARD = rgb(255,255,255), CARDA = 0.91, STROKE = rgb(210,80,80), ACCENT = rgb(255,120,120), FIELD = rgb(255,255,255), FIELDA = 0.88 },
+	["AMOELD"]       = { G1 = rgb(0,0,0), G2 = rgb(6,6,8), TEXT = rgb(255,255,255), SUB = rgb(170,170,176),
+		CARD = rgb(255,255,255), CARDA = 0.95, STROKE = rgb(60,60,66), ACCENT = rgb(235,235,240), FIELD = rgb(255,255,255), FIELDA = 0.93 },
+	["Deep Violet"]  = { G1 = rgb(54,14,132), G2 = rgb(132,46,228), TEXT = rgb(255,255,255), SUB = rgb(220,200,250),
+		CARD = rgb(255,255,255), CARDA = 0.90, STROKE = rgb(170,120,240), ACCENT = rgb(205,155,255), FIELD = rgb(255,255,255), FIELDA = 0.86 },
+	["Senar Neon"]   = { G1 = rgb(8,22,52), G2 = rgb(10,76,86), TEXT = rgb(255,255,255), SUB = rgb(160,205,225),
+		CARD = rgb(255,255,255), CARDA = 0.92, STROKE = rgb(38,140,255), ACCENT = rgb(80,235,70), FIELD = rgb(255,255,255), FIELDA = 0.88 },
+}
+local THEME_ORDER = { "Pearl White", "Deep Ocean", "Midnight Blue", "Charcoal", "Blood Red", "AMOELD", "Deep Violet", "Senar Neon" }
+local currentTheme = env.__SenarTheme or "Deep Ocean"
+if not THEMES[currentTheme] then currentTheme = "Deep Ocean" end
+local T = THEMES[currentTheme]
+
+-- =====================================================================
+-- ============================ UI =====================================
+-- =====================================================================
+local conns = {}
+local function track(c) conns[#conns + 1] = c return c end
+
+local binds, themeHooks = {}, {}
+local function th(key) return { k = key } end
+
+local function mk(class, props, parent)
+	local o = Instance.new(class)
+	for k, v in pairs(props) do
+		if type(v) == "table" and v.k then
+			o[k] = T[v.k]
+			binds[#binds + 1] = { o, k, v.k }
+		else
+			o[k] = v
+		end
+	end
+	o.Parent = parent
+	return o
+end
+local function corner(o, r) return mk("UICorner", { CornerRadius = UDim.new(0, r) }, o) end
+local function stroke(o, key, thick, tr)
+	return mk("UIStroke", { Color = th(key or "STROKE"), Thickness = thick or 1, Transparency = tr or 0.4,
+		ApplyStrokeMode = Enum.ApplyStrokeMode.Border }, o)
+end
+local function text(parent, props)
+	local d = {
+		BackgroundTransparency = 1, TextColor3 = th("TEXT"), Font = Enum.Font.GothamMedium, TextSize = 13,
+		TextXAlignment = Enum.TextXAlignment.Left, TextYAlignment = Enum.TextYAlignment.Center,
+	}
+	for k, v in pairs(props) do d[k] = v end
+	return mk("TextLabel", d, parent)
+end
+local function tw(o, t, props)
+	local x = TweenService:Create(o, TweenInfo.new(t, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), props)
+	x:Play()
+	return x
+end
+local function isPress(i)
+	return i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = tostring(math.random(1e6, 9e6))
+gui.ResetOnSpawn = false
+gui.DisplayOrder = 999
+gui.IgnoreGuiInset = true
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+do
+	local ok = pcall(function() gui.Parent = (gethui and gethui()) or game:GetService("CoreGui") end)
+	if not ok or not gui.Parent then gui.Parent = LocalPlayer:WaitForChild("PlayerGui") end
+end
+
+-- toast
+local toastLbl = mk("TextLabel", {
+	AnchorPoint = Vector2.new(0.5, 1), Position = UDim2.new(0.5, 0, 1, 60), Size = UDim2.fromOffset(320, 30),
+	BackgroundColor3 = Color3.fromRGB(20, 20, 24), BackgroundTransparency = 0.1, BorderSizePixel = 0, Text = "",
+	TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamMedium, TextSize = 12, Visible = false, ZIndex = 200,
+}, gui)
+corner(toastLbl, 8)
+local toastId = 0
+local function toast(msg)
+	toastId += 1
+	local id = toastId
+	toastLbl.Text = msg
+	toastLbl.Position = UDim2.new(0.5, 0, 1, 60)
+	toastLbl.Visible = true
+	tw(toastLbl, 0.25, { Position = UDim2.new(0.5, 0, 1, -30) })
+	task.delay(2.4, function()
+		if id ~= toastId or not toastLbl.Parent then return end
+		tw(toastLbl, 0.2, { Position = UDim2.new(0.5, 0, 1, 60) })
+		task.delay(0.25, function()
+			if id == toastId and toastLbl.Parent then toastLbl.Visible = false end
+		end)
+	end)
+end
+
+-- ---------- window ----------
+local WW, WH = 580, 372
+local holder = mk("Frame", {
+	AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(WW, WH),
+	BackgroundTransparency = 1,
+}, gui)
+local hScale = mk("UIScale", { Scale = 1 }, holder)
+local userScale, zoom = 1, 1
+local function fit()
+	local cam = workspace.CurrentCamera
+	if not cam then return end
+	local vp = cam.ViewportSize
+	local base = math.clamp(math.min(vp.X / (WW + 30), vp.Y / (WH + 30)), 0.4, 1.2)
+	local maxS = math.max(0.4, math.min(vp.X / (WW + 8), vp.Y / (WH + 8)))
+	hScale.Scale = math.clamp(base * userScale * zoom, 0.4, maxS)
+end
+fit()
+if workspace.CurrentCamera then
+	track(workspace.CurrentCamera:GetPropertyChangedSignal("ViewportSize"):Connect(fit))
+end
+
+local win = mk("Frame", {
+	Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ClipsDescendants = true,
+}, holder)
+corner(win, 10)
+stroke(win, "STROKE", 1.2, 0.2)
+local winGrad = mk("UIGradient", { Rotation = 35 }, win)
+-- lapisan kilap (acrylic)
+local gloss = mk("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = Color3.new(1, 1, 1), BorderSizePixel = 0, ZIndex = 1 }, win)
+mk("UIGradient", {
+	Rotation = 28,
+	Transparency = NumberSequence.new({
+		NumberSequenceKeypoint.new(0, 0.9), NumberSequenceKeypoint.new(0.35, 0.97),
+		NumberSequenceKeypoint.new(0.6, 0.93), NumberSequenceKeypoint.new(1, 0.97),
+	}),
+}, gloss)
+
+local function applyWinGradient()
+	local mid = T.G1:Lerp(T.G2, 0.5):Lerp(Color3.new(1, 1, 1), 0.05)
+	winGrad.Color = ColorSequence.new({
+		ColorSequenceKeypoint.new(0, T.G1), ColorSequenceKeypoint.new(0.5, mid), ColorSequenceKeypoint.new(1, T.G2),
+	})
+end
+applyWinGradient()
+
+-- ---------- title bar ----------
+local titleBar = mk("Frame", { Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, Active = true, ZIndex = 5 }, win)
+text(titleBar, {
+	Position = UDim2.fromOffset(12, 0), Size = UDim2.new(1, -140, 1, 0), TextSize = 11, TextColor3 = th("SUB"), ZIndex = 6,
+	Text = SCRIPT_NAME .. " dev - " .. DEVELOPER,
+})
+local function barBtn(x)
+	return mk("TextButton", {
+		AnchorPoint = Vector2.new(1, 0), Position = UDim2.new(1, x, 0, 0), Size = UDim2.fromOffset(38, 30),
+		BackgroundTransparency = 1, Text = "", AutoButtonColor = false, ZIndex = 7,
+	}, titleBar)
+end
+local minBtn, maxBtn, closeBtn = barBtn(-76), barBtn(-38), barBtn(0)
+mk("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(10, 1.5),
+	BackgroundColor3 = th("TEXT"), BorderSizePixel = 0, ZIndex = 8 }, minBtn)
+do
+	local sq = mk("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(10, 10),
+		BackgroundTransparency = 1, ZIndex = 8 }, maxBtn)
+	stroke(sq, "TEXT", 1.3, 0)
+end
+for _, rot in ipairs({ 45, -45 }) do
+	mk("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0.5, 0.5), Size = UDim2.fromOffset(13, 1.5),
+		Rotation = rot, BackgroundColor3 = th("TEXT"), BorderSizePixel = 0, ZIndex = 8 }, closeBtn)
+end
+
+do -- drag lewat title bar
+	local dragging, startMouse, startPos
+	track(titleBar.InputBegan:Connect(function(i)
+		if isPress(i) then dragging, startMouse, startPos = true, i.Position, holder.Position end
+	end))
+	track(UserInputService.InputChanged:Connect(function(i)
+		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+			local d = (i.Position - startMouse) / hScale.Scale
+			holder.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+		end
+	end))
+	track(UserInputService.InputEnded:Connect(function(i)
+		if isPress(i) then dragging = false end
+	end))
+end
+
+-- ---------- sidebar kiri ----------
+local profile = mk("Frame", {
+	Position = UDim2.fromOffset(10, 36), Size = UDim2.fromOffset(142, 46), BackgroundColor3 = th("CARD"), BackgroundTransparency = th("CARDA"),
+	BorderSizePixel = 0, ZIndex = 3,
+}, win)
+corner(profile, 8)
+local av = mk("ImageLabel", {
+	Position = UDim2.fromOffset(8, 8), Size = UDim2.fromOffset(30, 30), BackgroundColor3 = Color3.fromRGB(40, 40, 46), BorderSizePixel = 0, ZIndex = 4,
+}, profile)
+corner(av, 15)
+task.spawn(function()
+	local ok, img = pcall(function()
+		return Players:GetUserThumbnailAsync(LocalPlayer.UserId, Enum.ThumbnailType.HeadShot, Enum.ThumbnailSize.Size100x100)
+	end)
+	if ok and av.Parent then av.Image = img end
+end)
+text(profile, { Position = UDim2.fromOffset(46, 6), Size = UDim2.new(1, -52, 0, 18), Text = LocalPlayer.DisplayName, TextSize = 13,
+	Font = Enum.Font.GothamBold, TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 4 })
+text(profile, { Position = UDim2.fromOffset(46, 24), Size = UDim2.new(1, -52, 0, 14), Text = "Advanced User", TextSize = 10,
+	TextColor3 = th("SUB"), ZIndex = 4 })
+
+local searchF = mk("Frame", {
+	Position = UDim2.fromOffset(10, 90), Size = UDim2.fromOffset(142, 28), BackgroundColor3 = th("FIELD"), BackgroundTransparency = th("FIELDA"),
+	BorderSizePixel = 0, ZIndex = 3,
+}, win)
+corner(searchF, 6)
+stroke(searchF, "STROKE", 1, 0.55)
+text(searchF, { Position = UDim2.fromOffset(8, 0), Size = UDim2.fromOffset(18, 28), Text = "🔍", TextSize = 12, ZIndex = 4,
+	TextXAlignment = Enum.TextXAlignment.Center })
+local searchBox = mk("TextBox", {
+	Position = UDim2.fromOffset(28, 0), Size = UDim2.new(1, -34, 1, 0), BackgroundTransparency = 1, Text = "", PlaceholderText = "Search...",
+	PlaceholderColor3 = th("SUB"), TextColor3 = th("TEXT"), Font = Enum.Font.GothamMedium, TextSize = 12, ClearTextOnFocus = false,
+	TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 4,
+}, searchF)
+
+local NAV = {
+	{ key = "Main", glyph = "🏠" }, { key = "Methods", glyph = "🖼" }, { key = "Layout", glyph = "▦" },
+	{ key = "Settings", glyph = "⚙" }, { key = "About", glyph = "💬" },
+}
+local pages, navBtns = {}, {}
+local currentPage
+local pageTitle = text(win, {
+	Position = UDim2.fromOffset(172, 34), Size = UDim2.new(1, -190, 0, 36), TextSize = 26, Font = Enum.Font.GothamBold, ZIndex = 3, Text = "Main",
+})
+
+local applyFilter
+local function showPage(key)
+	currentPage = key
+	for k, p in pairs(pages) do p.scroll.Visible = (k == key) end
+	pageTitle.Text = key
+	for k, nb in pairs(navBtns) do
+		local on = (k == key)
+		nb.bg.BackgroundTransparency = on and T.CARDA - 0.04 or 1
+		nb.bar.Visible = on
+		nb.label.TextColor3 = T.TEXT
+	end
+	if applyFilter then applyFilter(searchBox.Text) end
+end
+
+for i, n in ipairs(NAV) do
+	local b = mk("TextButton", {
+		Position = UDim2.fromOffset(10, 128 + (i - 1) * 36), Size = UDim2.fromOffset(142, 32), BackgroundTransparency = 1, Text = "",
+		AutoButtonColor = false, ZIndex = 3,
+	}, win)
+	local bg = mk("Frame", { Size = UDim2.fromScale(1, 1), BackgroundColor3 = th("CARD"), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 3 }, b)
+	corner(bg, 6)
+	local bar = mk("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 0, 0.5, 0), Size = UDim2.fromOffset(3, 16),
+		BackgroundColor3 = th("ACCENT"), BorderSizePixel = 0, Visible = false, ZIndex = 4 }, b)
+	corner(bar, 2)
+	text(b, { Position = UDim2.fromOffset(10, 0), Size = UDim2.fromOffset(22, 32), Text = n.glyph, TextSize = 14, ZIndex = 4,
+		TextXAlignment = Enum.TextXAlignment.Center })
+	local lb = text(b, { Position = UDim2.fromOffset(38, 0), Size = UDim2.new(1, -42, 1, 0), Text = n.key, TextSize = 14, ZIndex = 4 })
+	navBtns[n.key] = { bg = bg, bar = bar, label = lb }
+	b.Activated:Connect(function() showPage(n.key) end)
+end
+
+-- ---------- halaman ----------
+local contentPos, contentSize = UDim2.fromOffset(172, 78), UDim2.new(1, -186, 1, -90)
+
+local function newPage(key)
+	local sc = mk("ScrollingFrame", {
+		Position = contentPos, Size = contentSize, BackgroundTransparency = 1, BorderSizePixel = 0, ScrollBarThickness = 3,
+		CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ScrollingDirection = Enum.ScrollingDirection.Y,
+		Visible = false, ZIndex = 3,
+	}, win)
+	mk("UIListLayout", { Padding = UDim.new(0, 6), SortOrder = Enum.SortOrder.LayoutOrder }, sc)
+	mk("UIPadding", { PaddingRight = UDim.new(0, 8), PaddingBottom = UDim.new(0, 10) }, sc)
+	local page = { scroll = sc, items = {}, order = 0 }
+	pages[key] = page
+	return page
+end
+
+local function addItem(page, frame, kind, txt)
+	page.order += 1
+	frame.LayoutOrder = page.order
+	table.insert(page.items, { frame = frame, kind = kind, text = (txt or ""):lower() })
+end
+
+local function heading(page, title)
+	local l = text(page.scroll, { Size = UDim2.new(1, 0, 0, 24), Text = title, TextSize = 15, Font = Enum.Font.GothamBold, ZIndex = 3 })
+	addItem(page, l, "head", title)
+end
+
+local function row(page, title, desc, h)
+	local f = mk("Frame", {
+		Size = UDim2.new(1, 0, 0, h or 50), BackgroundColor3 = th("CARD"), BackgroundTransparency = th("CARDA"), BorderSizePixel = 0, ZIndex = 3,
+	}, page.scroll)
+	corner(f, 6)
+	stroke(f, "STROKE", 1, 0.6)
+	text(f, { Position = UDim2.fromOffset(12, desc and 7 or 0), Size = UDim2.new(1, -190, 0, desc and 18 or (h or 50)), Text = title, TextSize = 13,
+		Font = Enum.Font.GothamBold, ZIndex = 4, TextTruncate = Enum.TextTruncate.AtEnd })
+	if desc then
+		text(f, { Position = UDim2.fromOffset(12, 25), Size = UDim2.new(1, -190, 0, 18), Text = desc, TextSize = 11, TextColor3 = th("SUB"), ZIndex = 4,
+			TextTruncate = Enum.TextTruncate.AtEnd })
+	end
+	addItem(page, f, "row", title .. " " .. (desc or ""))
+	return f
+end
+
+-- toggle (gaya Fluent)
+local Ctl = { toggles = {}, handlers = {}, dropdowns = {}, sliders = {} }
+local function toggleRow(page, name, desc)
+	local f = row(page, name, desc)
+	local pillF = mk("Frame", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(42, 22),
+		BackgroundColor3 = th("ACCENT"), BackgroundTransparency = 1, BorderSizePixel = 0, ZIndex = 5 }, f)
+	corner(pillF, 11)
+	local ps = stroke(pillF, "SUB", 1.4, 0)
+	local knob = mk("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.new(0, 4, 0.5, 0), Size = UDim2.fromOffset(14, 14),
+		BackgroundColor3 = th("TEXT"), BorderSizePixel = 0, ZIndex = 6 }, pillF)
+	corner(knob, 7)
+	local state = false
+	local obj = {}
+	local function paint()
+		tw(pillF, 0.15, { BackgroundTransparency = state and 0 or 1 })
+		tw(knob, 0.15, { Position = state and UDim2.new(0, 24, 0.5, 0) or UDim2.new(0, 4, 0.5, 0) })
+		knob.BackgroundColor3 = state and Color3.new(0, 0, 0) or T.TEXT
+		ps.Transparency = state and 1 or 0
+	end
+	function obj.get() return state end
+	function obj.set(s)
+		s = not not s
+		if s == state then return end
+		state = s
+		paint()
+		local h = Ctl.handlers[name]
+		if h then task.spawn(h, s) end
+	end
+	local hit = mk("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", ZIndex = 7 }, f)
+	hit.Activated:Connect(function() obj.set(not state) end)
+	themeHooks[#themeHooks + 1] = paint
+	Ctl.toggles[name] = obj
+	return obj
+end
+
+-- dropdown (popup melayang seperti Fluent)
+local popup, catcher
+local function closePopup()
+	if popup then popup:Destroy() popup = nil end
+	if catcher then catcher:Destroy() catcher = nil end
+end
+local function openPopup(btn, options, selected, onPick)
+	closePopup()
+	local sc = hScale.Scale
+	local rel = (btn.AbsolutePosition - win.AbsolutePosition) / sc
+	local bsz = btn.AbsoluteSize / sc
+	catcher = mk("TextButton", { Size = UDim2.fromScale(1, 1), BackgroundTransparency = 1, Text = "", ZIndex = 29 }, win)
+	catcher.Activated:Connect(closePopup)
+	local count = math.max(#options, 1)
+	local h = math.min(count, 6) * 30 + 8
+	local y = rel.Y + bsz.Y + 4
+	if y + h > WH - 6 then y = math.max(36, rel.Y - h - 4) end
+	popup = mk("Frame", {
+		Position = UDim2.fromOffset(rel.X, y), Size = UDim2.fromOffset(math.max(bsz.X, 150), h), BackgroundColor3 = Color3.fromRGB(28, 28, 32),
+		BackgroundTransparency = 0.04, BorderSizePixel = 0, ZIndex = 30,
+	}, win)
+	corner(popup, 8)
+	stroke(popup, "STROKE", 1, 0.3)
+	local list = mk("ScrollingFrame", {
+		Size = UDim2.new(1, -8, 1, -8), Position = UDim2.fromOffset(4, 4), BackgroundTransparency = 1, BorderSizePixel = 0,
+		ScrollBarThickness = 3, CanvasSize = UDim2.new(), AutomaticCanvasSize = Enum.AutomaticSize.Y, ZIndex = 31,
+	}, popup)
+	mk("UIListLayout", { SortOrder = Enum.SortOrder.LayoutOrder }, list)
+	if #options == 0 then
+		mk("TextLabel", { Size = UDim2.new(1, 0, 0, 30), BackgroundTransparency = 1, Text = "  (kosong)", TextColor3 = Color3.fromRGB(170, 170, 176),
+			Font = Enum.Font.GothamMedium, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left, ZIndex = 32 }, list)
+	end
+	for i, opt in ipairs(options) do
+		local b = mk("TextButton", { LayoutOrder = i, Size = UDim2.new(1, 0, 0, 30), BackgroundColor3 = Color3.new(1, 1, 1),
+			BackgroundTransparency = (opt == selected) and 0.88 or 1, Text = "", AutoButtonColor = false, ZIndex = 32 }, list)
+		corner(b, 6)
+		mk("TextLabel", { Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -20, 1, 0), BackgroundTransparency = 1, Text = tostring(opt),
+			TextColor3 = Color3.new(1, 1, 1), Font = Enum.Font.GothamMedium, TextSize = 13, TextXAlignment = Enum.TextXAlignment.Left,
+			TextTruncate = Enum.TextTruncate.AtEnd, ZIndex = 33 }, b)
+		b.MouseEnter:Connect(function() if opt ~= selected then b.BackgroundTransparency = 0.94 end end)
+		b.MouseLeave:Connect(function() if opt ~= selected then b.BackgroundTransparency = 1 end end)
+		b.Activated:Connect(function()
+			closePopup()
+			onPick(opt)
+		end)
+	end
+end
+
+local function dropdownRow(page, name, desc, optionsFn, default, onPick)
+	local f = row(page, name, desc)
+	local btn = mk("TextButton", {
+		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(150, 30),
+		BackgroundColor3 = th("FIELD"), BackgroundTransparency = th("FIELDA"), Text = "", AutoButtonColor = false, ZIndex = 5,
+	}, f)
+	corner(btn, 6)
+	stroke(btn, "STROKE", 1, 0.5)
+	local selected = default
+	local lbl = text(btn, { Position = UDim2.fromOffset(10, 0), Size = UDim2.new(1, -30, 1, 0), Text = selected or "Select...", TextSize = 13,
+		ZIndex = 6, TextTruncate = Enum.TextTruncate.AtEnd })
+	text(btn, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -8, 0.5, 0), Size = UDim2.fromOffset(14, 14), Text = "v", TextSize = 10,
+		TextXAlignment = Enum.TextXAlignment.Center, TextColor3 = th("SUB"), ZIndex = 6 })
+	btn.Activated:Connect(function()
+		local opts = (type(optionsFn) == "function") and optionsFn() or optionsFn
+		openPopup(btn, opts, selected, function(opt)
+			selected = opt
+			lbl.Text = tostring(opt)
+			onPick(opt)
+		end)
+	end)
+	Ctl.dropdowns[name] = { get = function() return selected end, set = function(v) selected = v lbl.Text = tostring(v) end }
+	return f
+end
+
+local function sliderRow(page, name, desc, min, max, step, default, onChange)
+	local f = row(page, name, desc)
+	local vl = text(f, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(46, 20),
+		TextXAlignment = Enum.TextXAlignment.Right, TextSize = 12, TextColor3 = th("SUB"), ZIndex = 5 })
+	local hit = mk("TextButton", { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -62, 0.5, 0), Size = UDim2.fromOffset(110, 26),
+		BackgroundTransparency = 1, Text = "", ZIndex = 6 }, f)
+	local track = mk("Frame", { AnchorPoint = Vector2.new(0, 0.5), Position = UDim2.fromScale(0, 0.5), Size = UDim2.new(1, 0, 0, 4),
+		BackgroundColor3 = th("SUB"), BackgroundTransparency = 0.6, BorderSizePixel = 0, ZIndex = 6 }, hit)
+	corner(track, 2)
+	local fill = mk("Frame", { Size = UDim2.fromScale(0, 1), BackgroundColor3 = th("ACCENT"), BorderSizePixel = 0, ZIndex = 7 }, track)
+	corner(fill, 2)
+	local knob = mk("Frame", { AnchorPoint = Vector2.new(0.5, 0.5), Position = UDim2.fromScale(0, 0.5), Size = UDim2.fromOffset(14, 14),
+		BackgroundColor3 = th("ACCENT"), BorderSizePixel = 0, ZIndex = 8 }, track)
+	corner(knob, 7)
+	local value = default
+	local function snap(v)
+		v = math.clamp(v, min, max)
+		return math.clamp(min + math.floor((v - min) / step + 0.5) * step, min, max)
+	end
+	value = snap(value)
+	local function render()
+		local fr = (value - min) / (max - min)
+		fill.Size = UDim2.fromScale(fr, 1)
+		knob.Position = UDim2.fromScale(fr, 0.5)
+		vl.Text = tostring(math.floor(value + 0.5))
+	end
+	render()
+	local dragging = false
+	local function setFrom(input)
+		local w = track.AbsoluteSize.X
+		if w <= 0 then return end
+		local v = snap(min + math.clamp((input.Position.X - track.AbsolutePosition.X) / w, 0, 1) * (max - min))
+		if v ~= value then
+			value = v
+			render()
+			if onChange then onChange(value) end
+		end
+	end
+	hit.InputBegan:Connect(function(i)
+		if isPress(i) then
+			dragging = true
+			page.scroll.ScrollingEnabled = false
+			setFrom(i)
+		end
+	end)
+	track.Parent.Parent = hit.Parent -- (tetap di dalam row)
+	table.insert(conns, UserInputService.InputChanged:Connect(function(i)
+		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then setFrom(i) end
+	end))
+	table.insert(conns, UserInputService.InputEnded:Connect(function(i)
+		if dragging and isPress(i) then
+			dragging = false
+			page.scroll.ScrollingEnabled = true
+		end
+	end))
+	Ctl.sliders[name] = function() return value end
+	return f
+end
+
+local function infoRow(page, name, desc, valueText, h)
+	local f = row(page, name, desc, h)
+	local v = text(f, { AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(160, 24),
+		Text = valueText or "", TextSize = 13, TextXAlignment = Enum.TextXAlignment.Right, TextColor3 = th("ACCENT"), ZIndex = 5,
+		Font = Enum.Font.GothamBold, TextTruncate = Enum.TextTruncate.AtEnd })
+	return f, v
+end
+
+local function buttonRow(page, name, desc, label, onClick)
+	local f = row(page, name, desc)
+	local b = mk("TextButton", {
+		AnchorPoint = Vector2.new(1, 0.5), Position = UDim2.new(1, -12, 0.5, 0), Size = UDim2.fromOffset(110, 30), BackgroundColor3 = th("ACCENT"),
+		Text = label, TextColor3 = Color3.new(0, 0, 0), Font = Enum.Font.GothamBold, TextSize = 13, AutoButtonColor = false, ZIndex = 6,
+	}, f)
+	corner(b, 6)
+	b.Activated:Connect(onClick)
+	return f
+end
+
+-- pencarian
+function applyFilter(txt)
+	txt = (txt or ""):lower()
+	local pg = pages[currentPage]
+	if not pg then return end
+	local lastHead, headVisible = nil, false
+	for _, it in ipairs(pg.items) do
+		if it.kind == "head" then
+			if lastHead then lastHead.Visible = headVisible or txt == "" end
+			lastHead, headVisible = it.frame, false
+		else
+			local vis = txt == "" or it.text:find(txt, 1, true) ~= nil
+			it.frame.Visible = vis
+			if vis then headVisible = true end
+		end
+	end
+	if lastHead then lastHead.Visible = headVisible or txt == "" end
+end
+searchBox:GetPropertyChangedSignal("Text"):Connect(function() applyFilter(searchBox.Text) end)
+
+-- tema
+local function applyTheme(name)
+	if not THEMES[name] then return end
+	T = THEMES[name]
+	currentTheme = name
+	env.__SenarTheme = name
+	for i = #binds, 1, -1 do
+		local b = binds[i]
+		if b[1].Parent then b[1][b[2]] = T[b[3]] else table.remove(binds, i) end
+	end
+	applyWinGradient()
+	for _, fn in ipairs(themeHooks) do pcall(fn) end
+	showPage(currentPage)
+end
+
+-- =============== ISI HALAMAN ===============
+local statusValue
+local selectedZone, selectedMethod = nil, "Normal"
+
+local function getZonesFolder()
+	local map = workspace:FindFirstChild("SAPMap")
+	return map and map:FindFirstChild("Zones")
+end
+local function getZoneNames()
+	local names = {}
+	local zones = getZonesFolder()
+	if zones then
+		for _, z in ipairs(zones:GetChildren()) do
+			if z.Name:lower() ~= "end" then table.insert(names, z.Name) end
+		end
+		table.sort(names, function(a, b)
+			local na, nb = tonumber(a:match("%d+")), tonumber(b:match("%d+"))
+			if na and nb then return na < nb end
+			return a < b
+		end)
+	end
+	return names
+end
+
+do -- MAIN
+	local p = newPage("Main")
+	heading(p, "Steal a PC")
+	dropdownRow(p, "Select Zone", "Area PC yang akan di-farm.", getZoneNames, nil, function(v) selectedZone = v end)
+	dropdownRow(p, "Method", "Cara membawa PC ke Safe Zone.", METHODS, "Normal", function(v) selectedMethod = v end)
+	toggleRow(p, "Auto PC", "Ambil PC otomatis di zona terpilih.")
+	heading(p, "Extra")
+	toggleRow(p, "Equip Best", "Equip terbaik tiap 5 detik.")
+	toggleRow(p, "Auto Train Bubbles", "Klik bubble training otomatis.")
+	heading(p, "Status")
+	local _, v = infoRow(p, "Status", "Aktivitas script saat ini.", "Idle")
+	statusValue = v
+end
+
+do -- METHODS
+	local p = newPage("Methods")
+	heading(p, "Method Settings")
+	sliderRow(p, "Quick Step Distance", "Jarak tiap TP (Quick Step).", 40, 300, 5, P.QuickStep, function(v) P.QuickStep = v end)
+	sliderRow(p, "Climb Height", "Naik berapa stud setelah ambil PC.", 50, 300, 10, P.Climb, function(v) P.Climb = v end)
+	sliderRow(p, "Force Speed", "Kecepatan gerak paksa ke Safe Zone.", 100, 1200, 25, P.Speed, function(v) P.Speed = v end)
+	sliderRow(p, "Descend Distance", "Jarak dari Safe Zone untuk mulai turun.", 20, 150, 5, P.Descend, function(v) P.Descend = v end)
+	heading(p, "Penjelasan")
+	infoRow(p, "Quick Step", "TP bertahap ke Safe Zone, taruh & ambil PC tiap langkah.", "", 54)
+	infoRow(p, "Stealer", "Jalan ke PC → naik → force smooth → turun → taruh/ambil → TP.", "", 54)
+	infoRow(p, "Helt", "Sama seperti Stealer, tapi ke PC dengan TP.", "", 54)
+	infoRow(p, "Internet Explorer", "Klone karakter tetap ada, asli farming pakai Helt.", "", 54)
+end
+
+do -- LAYOUT
+	local p = newPage("Layout")
+	heading(p, "Window")
+	sliderRow(p, "UI Scale", "Ukuran jendela.", 70, 130, 5, 100, function(v)
+		userScale = v / 100
+		fit()
+	end)
+	buttonRow(p, "Reset Position", "Kembalikan jendela ke tengah layar.", "Reset", function()
+		holder.Position = UDim2.fromScale(0.5, 0.5)
+	end)
+end
+
+do -- SETTINGS (persis seperti di gambar: Interface > Theme)
+	local p = newPage("Settings")
+	heading(p, "Interface")
+	dropdownRow(p, "Theme", "Changes the interface theme.", THEME_ORDER, currentTheme, function(v) applyTheme(v) end)
+	heading(p, "Script")
+	buttonRow(p, "Unload", "Matikan semua fitur & hapus UI.", "Unload", function()
+		if env.__SenarPCCleanup then env.__SenarPCCleanup() end
+	end)
+end
+
+do -- ABOUT
+	local p = newPage("About")
+	heading(p, "Senar Hub")
+	infoRow(p, "Script Name", "Nama script.", SCRIPT_NAME)
+	infoRow(p, "Developer", "Pembuat script.", DEVELOPER)
+	infoRow(p, "Team", "Anggota tim.", TEAM)
+	infoRow(p, "Game", "Game yang didukung.", "Steal a PC")
+end
+
+local function setStatus(t) if statusValue then statusValue.Text = tostring(t) end end
+
+-- tombol title bar & ikon buka/tutup
+local function setVisible(v) holder.Visible = v end
+minBtn.Activated:Connect(function() setVisible(false) end)
+closeBtn.Activated:Connect(function() setVisible(false) end)
+maxBtn.Activated:Connect(function()
+	zoom = (zoom == 1) and 1.25 or 1
+	fit()
+end)
+
+local iconBtn = mk("TextButton", {
+	Position = UDim2.new(0, 14, 0.5, -26), Size = UDim2.fromOffset(52, 52), BackgroundColor3 = Color3.fromRGB(20, 22, 28), BorderSizePixel = 0,
+	Text = "", AutoButtonColor = false, ZIndex = 100,
+}, gui)
+corner(iconBtn, 14)
+stroke(iconBtn, "ACCENT", 2, 0.1)
+local iconFallback = text(iconBtn, { Size = UDim2.fromScale(1, 1), Text = "S", TextSize = 26, Font = Enum.Font.GothamBlack,
+	TextXAlignment = Enum.TextXAlignment.Center, TextColor3 = th("ACCENT"), ZIndex = 101 })
+do
+	local img = mk("ImageLabel", {
+		Position = UDim2.fromOffset(5, 5), Size = UDim2.new(1, -10, 1, -10), BackgroundTransparency = 1, ScaleType = Enum.ScaleType.Fit,
+		Image = "rbxassetid://" .. tostring(TOGGLE_ICON), Visible = false, ZIndex = 102,
+	}, iconBtn)
+	corner(img, 10)
+	task.spawn(function()
+		pcall(function()
+			ContentProvider:PreloadAsync({ img }, function(_, status)
+				if status == Enum.AssetFetchStatus.Success and img.Parent then
+					img.Visible = true
+					iconFallback.Text = ""
+				end
+			end)
+		end)
+	end)
+end
+do
+	local dragging, moved, startMouse, startPos
+	track(iconBtn.InputBegan:Connect(function(i)
+		if isPress(i) then dragging, moved, startMouse, startPos = true, false, i.Position, iconBtn.Position end
+	end))
+	track(UserInputService.InputChanged:Connect(function(i)
+		if dragging and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then
+			local d = i.Position - startMouse
+			if d.Magnitude > 6 then moved = true end
+			if moved then
+				iconBtn.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + d.X, startPos.Y.Scale, startPos.Y.Offset + d.Y)
+			end
+		end
+	end))
+	track(UserInputService.InputEnded:Connect(function(i)
+		if dragging and isPress(i) then
+			dragging = false
+			if not moved then setVisible(not holder.Visible) end
+		end
+	end))
+end
+
+showPage("Main")
+
+-- =====================================================================
+-- ============================ LOGIKA =================================
+-- =====================================================================
+local function logic()
+	local PenPanel
+	task.spawn(function()
+		local sap = ReplicatedStorage:WaitForChild("SAP", 10)
+		local rem = sap and sap:WaitForChild("Remotes", 10)
+		PenPanel = rem and rem:WaitForChild("PenPanel", 10)
+		if not PenPanel then warn("[Senar Hub] PenPanel tidak ditemukan (Equip Best nonaktif)") end
+	end)
+
+	local autoPC, autoEquip, autoBubbles = false, false, false
+	local skipped = setmetatable({}, { __mode = "k" })
+
+	local function getRoot()
+		local c = LocalPlayer.Character
+		return c and c:FindFirstChild("HumanoidRootPart")
+	end
+	local function getHum()
+		local c = LocalPlayer.Character
+		return c and c:FindFirstChildOfClass("Humanoid")
+	end
+	local function getPos(obj)
+		if obj:IsA("Model") then return obj:GetPivot().Position
+		elseif obj:IsA("BasePart") then return obj.Position
+		elseif obj:IsA("Attachment") then return obj.WorldPosition end
+	end
+
+	-- indeks prompt (supaya tidak scan seluruh workspace tiap 0.05 detik)
+	local promptSet = {}
+	for _, d in ipairs(workspace:GetDescendants()) do
+		if d:IsA("ProximityPrompt") then promptSet[d] = true end
+	end
+	track(workspace.DescendantAdded:Connect(function(d)
+		if d:IsA("ProximityPrompt") then promptSet[d] = true end
+	end))
+	track(workspace.DescendantRemoving:Connect(function(d)
+		if d:IsA("ProximityPrompt") then promptSet[d] = nil end
+	end))
+
+	local function tpTo(pos)
+		local root = getRoot()
+		if not root then return false end
+		root.CFrame = CFrame.new(pos)
+		root.AssemblyLinearVelocity = Vector3.zero
+		return true
+	end
+	local function goSafe() tpTo(SAFE_POSITION) end
+
+	-- ---------- bounds / box (asli) ----------
+	local function getBounds(obj)
+		if obj:IsA("BasePart") then return obj.CFrame, obj.Size
+		elseif obj:IsA("Model") then return obj:GetBoundingBox() end
+		local minV, maxV
+		for _, p in ipairs(obj:GetDescendants()) do
+			if p:IsA("BasePart") then
+				local cf, s = p.CFrame, p.Size
+				local r, u, l = cf.RightVector, cf.UpVector, cf.LookVector
+				local half = Vector3.new(
+					math.abs(r.X) * s.X + math.abs(u.X) * s.Y + math.abs(l.X) * s.Z,
+					math.abs(r.Y) * s.X + math.abs(u.Y) * s.Y + math.abs(l.Y) * s.Z,
+					math.abs(r.Z) * s.X + math.abs(u.Z) * s.Y + math.abs(l.Z) * s.Z) / 2
+				local lo, hi = cf.Position - half, cf.Position + half
+				minV = minV and Vector3.new(math.min(minV.X, lo.X), math.min(minV.Y, lo.Y), math.min(minV.Z, lo.Z)) or lo
+				maxV = maxV and Vector3.new(math.max(maxV.X, hi.X), math.max(maxV.Y, hi.Y), math.max(maxV.Z, hi.Z)) or hi
+			end
+		end
+		if not minV then return nil end
+		return CFrame.new((minV + maxV) / 2), maxV - minV
+	end
+	local function inZone(pos, cf, size)
+		local rel = cf:PointToObjectSpace(pos)
+		return math.abs(rel.X) <= size.X / 2 + ZONE_MARGIN
+			and math.abs(rel.Y) <= size.Y / 2 + ZONE_MARGIN
+			and math.abs(rel.Z) <= size.Z / 2 + ZONE_MARGIN
+	end
+	local function detectBoxes()
+		local folder = getZonesFolder()
+		local zone = folder and selectedZone and folder:FindFirstChild(selectedZone)
+		local boxes = workspace:FindFirstChild("SAPBoxes")
+		local root = getRoot()
+		if not (zone and boxes and root) then return {} end
+		local cf, size = getBounds(zone)
+		if not cf then return {} end
+		local list, now = {}, os.clock()
+		for _, box in ipairs(boxes:GetChildren()) do
+			if not (skipped[box] and now - skipped[box] < SKIP_TIME) then
+				local pos = getPos(box)
+				if pos and inZone(pos, cf, size) then
+					table.insert(list, { box = box, dist = (pos - root.Position).Magnitude })
+				end
+			end
+		end
+		table.sort(list, function(a, b) return a.dist < b.dist end)
+		return list
+	end
+
+	local function fireNearbyPrompts()
+		local root = getRoot()
+		if not (root and fireproximityprompt) then return 0 end
+		local count = 0
+		for d in pairs(promptSet) do
+			if d.Parent and d.Enabled then
+				local pp = getPos(d.Parent)
+				if pp and (pp - root.Position).Magnitude <= PROMPT_RANGE then
+					pcall(function() d.HoldDuration = 0 end)
+					pcall(fireproximityprompt, d)
+					count += 1
+				end
+			end
+		end
+		return count
+	end
+	local function findBoxPrompt(box) return box:FindFirstChildWhichIsA("ProximityPrompt", true) end
+
+	-- ambil PC (logika asli, tanpa TP awal; ditambah batas waktu)
+	local function grabBox(box, alive)
+		local fired = false
+		local t0 = os.clock()
+		while alive() and box.Parent and os.clock() - t0 < 10 do
+			fireNearbyPrompts()
+			local p = findBoxPrompt(box)
+			if p then
+				fired = true
+				if not p.Enabled then break end
+			elseif fired then
+				break
+			end
+			task.wait(FIRE_INTERVAL)
+		end
+		return fired
+	end
+
+	-- taruh PC / ambil lagi
+	local function placePC()
+		local hum, ch = getHum(), LocalPlayer.Character
+		local holdingTool = ch and ch:FindFirstChildOfClass("Tool")
+		if holdingTool and hum then
+			pcall(function() hum:UnequipTools() end) -- PC dipegang sebagai Tool -> lepas
+		else
+			fireNearbyPrompts()                       -- PC dibawa lewat prompt -> tekan untuk menaruh
+		end
+		task.wait(PLACE_WAIT)
+	end
+	local function takePC(box)
+		local p = box and box.Parent and findBoxPrompt(box)
+		if p and p.Enabled and fireproximityprompt then
+			pcall(function() p.HoldDuration = 0 end)
+			pcall(fireproximityprompt, p)
+		end
+		fireNearbyPrompts()
+		task.wait(PLACE_WAIT)
+	end
+
+	-- ---------- gerak paksa smooth ----------
+	local moving = false
+	track(RunService.Stepped:Connect(function()
+		if not moving then return end
+		local ch = LocalPlayer.Character
+		if not ch then return end
+		for _, p in ipairs(ch:GetDescendants()) do
+			if p:IsA("BasePart") then p.CanCollide = false end
+		end
+	end))
+
+	local function smoothMove(target, speed, done, alive)
+		local root = getRoot()
+		if not root then return false end
+		moving = true
+		local bv = Instance.new("BodyVelocity")
+		bv.Name = "SenarHold"
+		bv.MaxForce = Vector3.new(1e9, 1e9, 1e9)
+		bv.Velocity = Vector3.zero
+		bv.Parent = root
+		local reached = false
+		local t0 = os.clock()
+		while alive() and os.clock() - t0 < 60 do
+			root = getRoot()
+			if not root then break end
+			if done(root.Position) then reached = true break end
+			local dt = RunService.Heartbeat:Wait()
+			local delta = target - root.Position
+			local dist = delta.Magnitude
+			if dist < 0.5 then reached = true break end
+			local ramp = math.min(1, 0.2 + (os.clock() - t0) / 0.4) -- awal pelan -> smooth
+			local step = math.min(speed * ramp * dt, dist)
+			root.CFrame = CFrame.new(root.Position + delta.Unit * step) * (root.CFrame - root.CFrame.Position)
+			root.AssemblyLinearVelocity = Vector3.zero
+		end
+		pcall(function() bv:Destroy() end)
+		moving = false
+		return reached
+	end
+
+	local function walkTo(pos, alive)
+		local t0 = os.clock()
+		while alive() and os.clock() - t0 < 25 do
+			local root, hum = getRoot(), getHum()
+			if not (root and hum) then break end
+			local flat = Vector3.new(pos.X - root.Position.X, 0, pos.Z - root.Position.Z).Magnitude
+			if flat < 5 and math.abs(pos.Y - root.Position.Y) < 12 then return true end
+			hum:MoveTo(pos)
+			task.wait(0.15)
+		end
+		return false
+	end
+
+	-- ---------- METHOD ----------
+	-- 1) Quick Step: TP bertahap ke Safe Zone, tiap langkah taruh + ambil PC
+	local function quickStep(box, alive)
+		for _ = 1, 300 do
+			if not alive() then return end
+			local root = getRoot()
+			if not root then return end
+			local delta = SAFE_POSITION - root.Position
+			local dist = delta.Magnitude
+			if dist <= 6 then break end
+			tpTo(root.Position + delta.Unit * math.min(P.QuickStep, dist))
+			task.wait(0.1)
+			placePC()
+			takePC(box)
+		end
+		if alive() then goSafe() end
+	end
+
+	-- 2/3) Stealer (jalan ke PC) & Helt (TP ke PC)
+	local function stealerFlow(box, viaTP, alive)
+		local pos = getPos(box)
+		if not pos then return false end
+		if viaTP then
+			tpTo(pos + Vector3.new(0, TELEPORT_HEIGHT, 0))
+		elseif not walkTo(pos, alive) then
+			tpTo(pos + Vector3.new(0, TELEPORT_HEIGHT, 0)) -- gagal jalan -> TP
+		end
+		if not alive() then return false end
+
+		local fired = grabBox(box, alive)
+		if not fired or not alive() then return fired end
+
+		-- naik
+		local root = getRoot()
+		if not root then return fired end
+		local airY = root.Position.Y + P.Climb
+		tpTo(Vector3.new(root.Position.X, airY, root.Position.Z))
+
+		-- force smooth ke atas Safe Zone, berhenti saat tinggal P.Descend dari Safe Zone
+		local airTarget = Vector3.new(SAFE_POSITION.X, airY, SAFE_POSITION.Z)
+		smoothMove(airTarget, P.Speed, function(p)
+			return Vector3.new(p.X - airTarget.X, 0, p.Z - airTarget.Z).Magnitude <= P.Descend
+		end, alive)
+		if not alive() then return fired end
+
+		-- turun dulu (sebelum Safe Zone)
+		local r2 = getRoot()
+		if r2 then
+			local ground = Vector3.new(r2.Position.X, SAFE_POSITION.Y, r2.Position.Z)
+			smoothMove(ground, 500, function(p) return (p - ground).Magnitude < 1 end, alive)
+		end
+		if not alive() then return fired end
+
+		-- taruh PC, ambil lagi, lalu TP ke Safe Zone
+		placePC()
+		takePC(box)
+		if alive() then goSafe() end
+		return fired
+	end
+
+	local function processBox(box, alive)
+		local m = selectedMethod
+		if m == "Quick Step" then
+			local pos = getPos(box)
+			if pos then tpTo(pos + Vector3.new(0, TELEPORT_HEIGHT, 0)) end
+			if grabBox(box, alive) then quickStep(box, alive) end
+		elseif m == "Stealer" then
+			stealerFlow(box, false, alive)
+		elseif m == "Helt" or m == "Internet Explorer" then
+			stealerFlow(box, true, alive)
+		else -- Normal (asli)
+			local pos = getPos(box)
+			if pos then tpTo(pos + Vector3.new(0, TELEPORT_HEIGHT, 0)) end
+			grabBox(box, alive)
+		end
+	end
+
+	-- ---------- 4) Internet Explorer: klone karakter ----------
+	local clone
+	local function startClone()
+		if clone then return end
+		local ch = LocalPlayer.Character
+		if not ch then return end
+		ch.Archivable = true
+		clone = ch:Clone()
+		clone.Name = LocalPlayer.Name .. "_IE"
+		for _, d in ipairs(clone:GetDescendants()) do
+			if d:IsA("LuaSourceContainer") then
+				d:Destroy()
+			elseif d:IsA("BasePart") then
+				d.CanCollide = false
+				d.CanTouch = false
+			end
+		end
+		local chrp = clone:FindFirstChild("HumanoidRootPart")
+		if chrp then chrp.Anchored = true end
+		clone.Parent = workspace
+		local chum = clone:FindFirstChildOfClass("Humanoid")
+		local cam = workspace.CurrentCamera
+		if chum and cam then cam.CameraSubject = chum end
+	end
+	local function stopClone()
+		if not clone then return end
+		local hum, cam = getHum(), workspace.CurrentCamera
+		if hum and cam then cam.CameraSubject = hum end
+		clone:Destroy()
+		clone = nil
+	end
+	track(RunService.RenderStepped:Connect(function()
+		if clone then
+			local chum = clone:FindFirstChildOfClass("Humanoid")
+			local cam = workspace.CurrentCamera
+			if chum and cam and cam.CameraSubject ~= chum then cam.CameraSubject = chum end
+		end
+	end))
+
+	-- ---------- toggle ----------
+	Ctl.handlers["Auto PC"] = function(enabled)
+		autoPC = enabled
+		if not enabled then
+			stopClone()
+			setStatus("Idle")
+			return
+		end
+		if not fireproximityprompt then toast("Executor tidak support fireproximityprompt") end
+		task.spawn(function()
+			local function alive() return autoPC end
+			while autoPC and gui.Parent do
+				if selectedMethod == "Internet Explorer" then startClone() else stopClone() end
+				local list = detectBoxes()
+				if #list > 0 then
+					setStatus(string.format("%s • %d PC • %s", tostring(selectedZone), #list, selectedMethod))
+					for _, item in ipairs(list) do
+						if not autoPC then break end
+						if item.box.Parent then
+							processBox(item.box, alive)
+							skipped[item.box] = os.clock()
+							if not autoPC then break end
+							task.wait(RETURN_DELAY)
+							goSafe()
+							task.wait(RETURN_STAY)
+						end
+					end
+				else
+					setStatus(selectedZone and "Menunggu PC..." or "Pilih zona dulu")
+					task.wait(1)
+				end
+			end
+			stopClone()
+			setStatus("Idle")
+		end)
+	end
+
+	Ctl.handlers["Equip Best"] = function(enabled)
+		autoEquip = enabled
+		if not enabled then return end
+		task.spawn(function()
+			while autoEquip and gui.Parent do
+				if PenPanel then
+					pcall(function() return PenPanel:InvokeServer("equipBest") end)
+				end
+				task.wait(EQUIP_INTERVAL)
+			end
+		end)
+	end
+
+	local function pressButton(btn)
+		pcall(function()
+			if firesignal then
+				firesignal(btn.MouseButton1Down)
+				firesignal(btn.MouseButton1Click)
+				firesignal(btn.Activated)
+				firesignal(btn.MouseButton1Up)
+			elseif getconnections then
+				for _, c in ipairs(getconnections(btn.MouseButton1Click)) do c:Fire() end
+				for _, c in ipairs(getconnections(btn.Activated)) do c:Fire() end
+			end
+		end)
+	end
+	local function findBubbles()
+		local list = {}
+		local pg = LocalPlayer:FindFirstChild("PlayerGui")
+		if not pg then return list end
+		for _, d in ipairs(pg:GetDescendants()) do
+			if d.Name == "TrainingBubbles" then
+				for _, b in ipairs(d:GetDescendants()) do
+					if b.Name == "Bubble" and b:IsA("GuiButton") and b.Visible then table.insert(list, b) end
+				end
+			end
+		end
+		return list
+	end
+	Ctl.handlers["Auto Train Bubbles"] = function(enabled)
+		autoBubbles = enabled
+		if not enabled then return end
+		task.spawn(function()
+			while autoBubbles and gui.Parent do
+				for _, b in ipairs(findBubbles()) do
+					if not autoBubbles then break end
+					pressButton(b)
+				end
+				task.wait(BUBBLE_INTERVAL)
+			end
+		end)
+	end
+
+	-- cleanup khusus logika
+	env.__SenarPCStop = function()
+		autoPC, autoEquip, autoBubbles = false, false, false
+		stopClone()
+	end
+end
+
+local okL, errL = pcall(logic)
+if not okL then warn("[Senar Hub] logic error: " .. tostring(errL)) end
+
+env.__SenarPCCleanup = function()
+	if env.__SenarPCStop then pcall(env.__SenarPCStop) env.__SenarPCStop = nil end
+	for _, c in ipairs(conns) do pcall(function() c:Disconnect() end) end
+	if gui and gui.Parent then gui:Destroy() end
+	env.__SenarPCCleanup = nil
+end
+
+toast(SCRIPT_NAME .. " • " .. DEVELOPER .. " siap")
