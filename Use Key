@@ -42,7 +42,7 @@ local PLACE_WAIT      = 0.2
 -- parameter method (bisa diubah di menu Methods)
 local P = { QuickStep = 130, Climb = 150, Speed = 600, Descend = 50 }
 
-local METHODS = { "Instant Steal Risk Kick", "Quick Step", "Stealer", "Teleport+Force Hots", "Afk" }
+local METHODS = { "Normal", "Quick Step", "Stealer", "Helt", "Internet Explorer" }
 
 -- ================= TEMA =================
 local function rgb(r, g, b) return Color3.fromRGB(r, g, b) end
